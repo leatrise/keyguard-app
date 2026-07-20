@@ -111,6 +111,7 @@ import com.artemchep.keyguard.common.usecase.CipherUnsecureUrlCheck
 import com.artemchep.keyguard.common.usecase.CopyText
 import com.artemchep.keyguard.common.usecase.DateFormatter
 import com.artemchep.keyguard.common.usecase.GetAccounts
+import com.artemchep.keyguard.common.usecase.GetAppIcons
 import com.artemchep.keyguard.common.usecase.GetAutofillDefaultMatchDetection
 import com.artemchep.keyguard.common.usecase.GetCiphers
 import com.artemchep.keyguard.common.usecase.GetCollections
@@ -120,6 +121,7 @@ import com.artemchep.keyguard.common.usecase.GetMarkdown
 import com.artemchep.keyguard.common.usecase.GetOrganizations
 import com.artemchep.keyguard.common.usecase.GetProfiles
 import com.artemchep.keyguard.common.usecase.GetTotpCode
+import com.artemchep.keyguard.common.usecase.GetWebsiteIcons
 import com.artemchep.keyguard.common.usecase.ShowMessage
 import com.artemchep.keyguard.common.util.StringComparatorIgnoreCase
 import com.artemchep.keyguard.common.util.flow.EventFlow
@@ -162,9 +164,11 @@ import com.artemchep.keyguard.feature.home.vault.add.attachment.SkeletonAttachme
 import com.artemchep.keyguard.feature.home.vault.add.attachment.toSkeletonAttachmentOrNull
 import com.artemchep.keyguard.feature.home.settings.accounts.model.AccountType
 import com.artemchep.keyguard.feature.home.vault.component.obscurePassword
+import com.artemchep.keyguard.feature.home.vault.link.CipherLink
 import com.artemchep.keyguard.feature.home.vault.link.CipherLinkPickerResult
 import com.artemchep.keyguard.feature.home.vault.link.CipherLinkPickerRoute
 import com.artemchep.keyguard.feature.home.vault.screen.VaultViewRoute
+import com.artemchep.keyguard.feature.home.vault.screen.toVaultItemIcon
 import com.artemchep.keyguard.feature.localization.TextHolder
 import com.artemchep.keyguard.feature.localization.wrap
 import com.artemchep.keyguard.feature.navigation.NavigationIntent
@@ -237,6 +241,8 @@ fun produceAddScreenState(
         getCollections = instance(),
         getFolders = instance(),
         getCiphers = instance(),
+        getAppIcons = instance(),
+        getWebsiteIcons = instance(),
         getTotpCode = instance(),
         getGravatarUrl = instance(),
         getMarkdown = instance(),
@@ -275,6 +281,8 @@ fun produceAddScreenState(
     getCollections: GetCollections,
     getFolders: GetFolders,
     getCiphers: GetCiphers,
+    getAppIcons: GetAppIcons,
+    getWebsiteIcons: GetWebsiteIcons,
     getTotpCode: GetTotpCode,
     getGravatarUrl: GetGravatarUrl,
     getMarkdown: GetMarkdown,
@@ -302,6 +310,8 @@ fun produceAddScreenState(
         getCollections,
         getFolders,
         getCiphers,
+        getAppIcons,
+        getWebsiteIcons,
         getTotpCode,
     ),
 ) {
@@ -313,6 +323,8 @@ fun produceAddScreenState(
         getCollections = getCollections,
         getFolders = getFolders,
         getCiphers = getCiphers,
+        getAppIcons = getAppIcons,
+        getWebsiteIcons = getWebsiteIcons,
         getTotpCode = getTotpCode,
         getGravatarUrl = getGravatarUrl,
         getMarkdown = getMarkdown,
@@ -341,6 +353,8 @@ suspend fun RememberStateFlowScope.addCipherStateProducer(
     getCollections: GetCollections,
     getFolders: GetFolders,
     getCiphers: GetCiphers,
+    getAppIcons: GetAppIcons,
+    getWebsiteIcons: GetWebsiteIcons,
     getTotpCode: GetTotpCode,
     getGravatarUrl: GetGravatarUrl,
     getMarkdown: GetMarkdown,
@@ -799,11 +813,17 @@ suspend fun RememberStateFlowScope.addCipherStateProducer(
             defaultConcealed = false,
             accountIdFlow = fieldAccountIdFlow,
             excludedCipherId = args.initialValue?.id,
+            ciphersFlow = getCiphers(),
+            appIconsFlow = getAppIcons(),
+            websiteIconsFlow = getWebsiteIcons(),
         )
         val concealedTextFactory = AddStateItemFieldTextFactory(
             defaultConcealed = true,
             accountIdFlow = fieldAccountIdFlow,
             excludedCipherId = args.initialValue?.id,
+            ciphersFlow = getCiphers(),
+            appIconsFlow = getAppIcons(),
+            websiteIconsFlow = getWebsiteIcons(),
         )
         val booleanFactory = AddStateItemFieldBooleanFactory()
         val linkedIdFactory = AddStateItemFieldLinkedIdFactory(
@@ -1639,6 +1659,9 @@ class AddStateItemFieldTextFactory(
     private val defaultConcealed: Boolean = false,
     private val accountIdFlow: Flow<String?>,
     private val excludedCipherId: String?,
+    private val ciphersFlow: Flow<List<DSecret>>,
+    private val appIconsFlow: Flow<Boolean>,
+    private val websiteIconsFlow: Flow<Boolean>,
 ) : AddStateItemFieldFactory() {
     override val type: String = if (defaultConcealed) {
         "field.text_concealed"
@@ -1701,10 +1724,26 @@ class AddStateItemFieldTextFactory(
                 ?: defaultConcealed
         }
 
+        fun selectLinkedCipher(accountId: String) {
+            val pickerRoute = CipherLinkPickerRoute(
+                args = CipherLinkPickerRoute.Args(
+                    accountId = accountId,
+                    excludedCipherId = excludedCipherId,
+                ),
+            )
+            val route = registerRouteResultReceiver(pickerRoute) { result ->
+                if (result is CipherLinkPickerResult.Confirm) {
+                    textHandle.setText(result.link.toString())
+                }
+            }
+            navigate(NavigationIntent.NavigateToRoute(route))
+        }
+
         val actionsFlow = combine(
             concealSink,
             accountIdFlow,
-        ) { conceal, accountId ->
+            textHandle.sink,
+        ) { conceal, accountId, textCell ->
             val concealItem = FlatItemAction(
                 id = "addItem.field.concealValue",
                 leading = {
@@ -1741,18 +1780,17 @@ class AddStateItemFieldTextFactory(
                             ChevronIcon()
                         },
                         onClick = {
-                            val pickerRoute = CipherLinkPickerRoute(
-                                args = CipherLinkPickerRoute.Args(
-                                    accountId = accountId,
-                                    excludedCipherId = excludedCipherId,
-                                ),
-                            )
-                            val route = registerRouteResultReceiver(pickerRoute) { result ->
-                                if (result is CipherLinkPickerResult.Confirm) {
-                                    textHandle.setText(result.link.toString())
-                                }
-                            }
-                            navigate(NavigationIntent.NavigateToRoute(route))
+                            selectLinkedCipher(accountId)
+                        },
+                    )
+                }
+                if (!conceal && CipherLink.parse(textCell.text) != null) {
+                    this += FlatItemAction(
+                        id = "addItem.field.removeCipherLink",
+                        leading = icon(Icons.Outlined.DeleteForever),
+                        title = TextHolder.Res(Res.string.remove),
+                        onClick = {
+                            textHandle.setText("")
                         },
                     )
                 }
@@ -1760,17 +1798,66 @@ class AddStateItemFieldTextFactory(
             }
         }
 
+        val iconSettingsFlow = combine(
+            appIconsFlow,
+            websiteIconsFlow,
+        ) { appIcons, websiteIcons ->
+            appIcons to websiteIcons
+        }
+        val linkTextFlow = ioEffect {
+            val typeTitles = DSecret.Type.entries
+                .associateWith { type -> translate(type.titleH()) }
+            translate(Res.string.cipher_link_unavailable_title) to typeTitles
+        }.asFlow()
+        val linkFlow = combine(
+            textHandle.sink,
+            accountIdFlow,
+            ciphersFlow,
+            iconSettingsFlow,
+            linkTextFlow,
+        ) { textCell, accountId, ciphers, iconSettings, linkText ->
+            val link = CipherLink.parse(textCell.text)
+                ?: return@combine null
+            val target = ciphers.firstOrNull { cipher ->
+                cipher.id != excludedCipherId &&
+                        cipher.accountId == accountId &&
+                        cipher.deletedDate == null &&
+                        cipher.service.remote?.id
+                            ?.let(CipherLink::of)
+                            ?.remoteCipherId == link.remoteCipherId
+            }
+            val (appIcons, websiteIcons) = iconSettings
+            val (unavailableTitle, typeTitles) = linkText
+            AddStateItem.Field.State.Text.Link(
+                title = target?.name ?: unavailableTitle,
+                text = target?.let { cipher ->
+                    cipher.login?.username
+                        ?.takeIf { it.isNotBlank() }
+                        ?: typeTitles.getValue(cipher.type)
+                },
+                icon = target?.toVaultItemIcon(
+                    appIcons = appIcons,
+                    websiteIcons = websiteIcons,
+                ),
+                onClick = accountId?.let { id ->
+                    { selectLinkedCipher(id) }
+                },
+            )
+        }
+
         val stateFlow = combine(
             labelFlow,
             textFlow,
             concealSink,
             actionsFlow,
-        ) { labelField, textField, hidden, actions ->
+            linkFlow,
+        ) { labelField, textField, hidden, actions, link ->
             AddStateItem.Field.State.Text(
                 label = labelField,
                 text = textField,
                 hidden = hidden,
                 options = actions,
+                link = if (hidden) null else link,
             )
         }
             .persistingStateIn(

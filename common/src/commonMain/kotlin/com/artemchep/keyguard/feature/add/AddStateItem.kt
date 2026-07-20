@@ -14,6 +14,7 @@ import com.artemchep.keyguard.feature.auth.common.TextFieldModel
 import com.artemchep.keyguard.feature.filepicker.FilePickerResult
 import com.artemchep.keyguard.feature.home.vault.add.GpgKeyDecor2Brr
 import com.artemchep.keyguard.feature.home.vault.add.KeyPairDecor2Brr
+import com.artemchep.keyguard.feature.home.vault.model.VaultItemIcon
 import com.artemchep.keyguard.ui.ContextItem
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.persistentListOf
@@ -196,11 +197,19 @@ sealed interface AddStateItem {
                 val label: TextFieldModel,
                 val text: TextFieldModel,
                 val hidden: Boolean = false,
+                val link: Link? = null,
             ) : State {
                 override fun withOptions(
                     options: ImmutableList<ContextItem>,
                 ) = copy(
                     options = options,
+                )
+
+                data class Link(
+                    val title: String,
+                    val text: String? = null,
+                    val icon: VaultItemIcon? = null,
+                    val onClick: (() -> Unit)? = null,
                 )
             }
 

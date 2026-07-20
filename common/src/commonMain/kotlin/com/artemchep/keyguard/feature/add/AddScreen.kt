@@ -37,6 +37,7 @@ import androidx.compose.material.icons.outlined.CloudDone
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Folder
 import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Password
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.Button
@@ -94,6 +95,7 @@ import com.artemchep.keyguard.feature.home.vault.component.FlatItemLayoutExpress
 import com.artemchep.keyguard.feature.home.vault.component.FlatItemSimpleExpressive
 import com.artemchep.keyguard.feature.home.vault.component.FlatItemTextContent2
 import com.artemchep.keyguard.feature.home.vault.component.Section
+import com.artemchep.keyguard.feature.home.vault.component.VaultItemIcon2
 import com.artemchep.keyguard.feature.home.vault.component.VaultViewTotpBadge2
 import com.artemchep.keyguard.feature.home.vault.component.defaultFlatItemPaddingValues
 import com.artemchep.keyguard.feature.navigation.LocalNavigationController
@@ -132,6 +134,7 @@ import com.artemchep.keyguard.ui.TagFlatTextField
 import com.artemchep.keyguard.ui.UrlFlatTextField
 import com.artemchep.keyguard.ui.buildContextItems
 import com.artemchep.keyguard.ui.focus.focusRequester2
+import com.artemchep.keyguard.ui.icons.ChevronIcon
 import com.artemchep.keyguard.ui.icons.IconBox
 import com.artemchep.keyguard.ui.icons.KeyguardAttachment
 import com.artemchep.keyguard.ui.icons.KeyguardCollection
@@ -1344,6 +1347,18 @@ private fun FieldTextField(
     actions: ImmutableList<ContextItem>,
     shapeState: Int,
 ) {
+    val link = state.link
+    if (link != null) {
+        FieldCipherLinkField(
+            modifier = modifier,
+            state = state,
+            link = link,
+            actions = actions,
+            shapeState = shapeState,
+        )
+        return
+    }
+
     val visibilityState = remember(state.hidden) {
         VisibilityState(
             isVisible = !state.hidden,
@@ -1379,6 +1394,97 @@ private fun FieldTextField(
                 },
                 onValueChange = state.text.onChange,
             )
+            OptionsButton(
+                actions = actions,
+            )
+        },
+    )
+}
+
+@Composable
+private fun FieldCipherLinkField(
+    modifier: Modifier = Modifier,
+    state: AddStateItem.Field.State.Text,
+    link: AddStateItem.Field.State.Text.Link,
+    actions: ImmutableList<ContextItem>,
+    shapeState: Int,
+) {
+    val label = state.label
+    val labelBuffer = rememberFieldBuffer(
+        text = label.text,
+        textRevision = label.textRevision,
+    )
+    val labelInteractionSource = remember { MutableInteractionSource() }
+    val isError = rememberUpdatedState(label.error != null)
+    val hasFocusState = remember { mutableStateOf(false) }
+    val isEmpty = remember(labelBuffer) {
+        derivedStateOf { labelBuffer.value.text.isBlank() }
+    }
+    val updatedOnClick by rememberUpdatedState(link.onClick)
+
+    BiFlatContainer(
+        modifier = modifier
+            .padding(horizontal = Dimens.fieldHorizontalPadding)
+            .onFocusChanged { focusState ->
+                hasFocusState.value = focusState.hasFocus
+            },
+        shapeState = shapeState,
+        isError = isError,
+        isFocused = hasFocusState,
+        isEmpty = isEmpty,
+        label = {
+            BiFlatTextFieldLabel(
+                label = label,
+                buffer = labelBuffer,
+                interactionSource = labelInteractionSource,
+            )
+        },
+        content = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = BiFlatValueHeightMin)
+                    .clickable(
+                        enabled = updatedOnClick != null,
+                        role = Role.Button,
+                    ) {
+                        updatedOnClick?.invoke()
+                    },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier.size(24.dp),
+                ) {
+                    val icon = link.icon
+                    if (icon != null) {
+                        VaultItemIcon2(icon = icon)
+                    } else {
+                        Icon(
+                            modifier = Modifier.align(Alignment.Center),
+                            imageVector = Icons.Outlined.Link,
+                            contentDescription = null,
+                        )
+                    }
+                }
+                Spacer(Modifier.width(12.dp))
+                Column(
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Text(text = link.title)
+                    link.text?.let { text ->
+                        Text(
+                            modifier = Modifier.alpha(MediumEmphasisAlpha),
+                            text = text,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+                if (updatedOnClick != null) {
+                    ChevronIcon()
+                }
+            }
+        },
+        trailing = {
             OptionsButton(
                 actions = actions,
             )
