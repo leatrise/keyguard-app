@@ -2,6 +2,9 @@ name: "New APK"
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - feature
 
 permissions:
   contents: read
@@ -55,3 +58,52 @@ jobs:
             androidApp/build/outputs/apk/**/*.apk
             androidApp/build/outputs/mapping/**/mapping.txt
           retention-days: 7
+
+  notify:
+    runs-on: ubuntu-latest
+    needs: build-android-app
+    if: github.event_name == 'push' && needs.build-android-app.result == 'success'
+
+    steps:
+      - name: Download release APK artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: app-android
+          path: artifacts/apk
+
+      - name: Send Telegram notification
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          COMMIT_AUTHOR: ${{ github.event.head_commit.author.name }}
+          RAW_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
+        run: |
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram notification skipped: missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID."
+            exit 0
+          fi
+
+          escape_html() {
+            sed 's/&/\&amp;/g; s/</\&lt;/g; s/>/\&gt;/g'
+          }
+
+          commit_message=$(printf '%s' "${RAW_COMMIT_MESSAGE:0:600}" | escape_html)
+          commit_author=$(printf '%s' "$COMMIT_AUTHOR" | escape_html)
+          commit_url=$(printf '%s' "$COMMIT_URL" | escape_html)
+          caption=$(printf 'New push to GitHub!\n#keyguard\n<pre>%s</pre>\nby <code>%s</code>\n%s' \
+            "$commit_message" "$commit_author" "$commit_url")
+
+          apk_path=$(find artifacts/apk -type f -name '*.apk' -print -quit)
+          if [ -z "$apk_path" ]; then
+            echo "No release APK artifact found after download."
+            exit 1
+          fi
+
+          curl --fail-with-body --show-error --silent \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendDocument" \
+            -F "chat_id=${TELEGRAM_CHAT_ID}" \
+            -F "document=@${apk_path};filename=$(basename "$apk_path")" \
+            -F "parse_mode=HTML" \
+            --form-string "caption=${caption}" \
+            -F "disable_web_page_preview=true"
