@@ -12,11 +12,14 @@ permissions:
 jobs:
   build-android-app:
     runs-on: ubuntu-latest
+    outputs:
+      apk_name: ${{ steps.name-apk.outputs.name }}
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
+          fetch-depth: 0
           persist-credentials: false
       - uses: ./.github/actions/setup_gradle
       - uses: ./.github/actions/setup_android_ndk
@@ -31,8 +34,16 @@ jobs:
           echo ${{ secrets.KEYSTORE_B64 }} | base64 -d | zcat >> androidApp/keyguard-release.keystore
           echo ${{ secrets.KEYSTORE_PROPS_B64 }} | base64 -d | zcat >> androidApp/keyguard-release.properties
           echo ${{ secrets.GOOGLE_SERVICES }} | base64 -d | zcat >> androidApp/google-services.json
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream https://github.com/AChep/keyguard-app.git
+          else
+            git remote add upstream https://github.com/AChep/keyguard-app.git
+          fi
+          git fetch --no-tags upstream master:refs/remotes/upstream/master
+          build_number=$(git rev-list --count upstream/master..HEAD)
           echo "" >> gradle.properties
           echo "versionRef=$(git rev-parse --short HEAD)" >> gradle.properties
+          echo "versionCode=$build_number" >> gradle.properties
           echo buildkonfig.flavor=release >> gradle.properties
       - uses: ./.github/actions/build_android_licenses
         with:
@@ -50,12 +61,24 @@ jobs:
         run: >-
           python scripts/check_bouncycastle_policy.py --artifact
           androidApp/build/outputs/apk/none/release/androidApp-none-release.apk
+      - name: "Name APK"
+        id: name-apk
+        shell: bash
+        run: |
+          metadata=androidApp/build/outputs/apk/none/release/output-metadata.json
+          version_name=$(jq -er '.elements[0].versionName' "$metadata")
+          version_code=$(jq -er '.elements[0].versionCode' "$metadata")
+          source_name=$(jq -er '.elements[0].outputFile' "$metadata")
+          apk_dir=$(dirname "$metadata")
+          apk_name="keyguard-${version_name}(${version_code}).apk"
+          mv "$apk_dir/$source_name" "$apk_dir/$apk_name"
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
       - name: 'Upload .apk'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: app-android
+          name: ${{ steps.name-apk.outputs.name }}
           path: |
-            androidApp/build/outputs/apk/**/*.apk
+            androidApp/build/outputs/apk/none/release/${{ steps.name-apk.outputs.name }}
             androidApp/build/outputs/mapping/**/mapping.txt
           retention-days: 7
 
@@ -68,7 +91,7 @@ jobs:
       - name: Download release APK artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: app-android
+          name: ${{ needs.build-android-app.outputs.apk_name }}
           path: artifacts/apk
 
       - name: Send Telegram notification
