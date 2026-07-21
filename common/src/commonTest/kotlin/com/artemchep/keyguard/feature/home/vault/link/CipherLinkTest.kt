@@ -147,10 +147,21 @@ class CipherLinkTest {
         val index = buildCipherRelationIndex(
             listOf(target, firstSource, secondSource),
         )
+        val targetLink = requireNotNull(CipherLink.of(TARGET_REMOTE_ID))
 
         val firstRelations = resolveCipherRelations(firstSource, index)
         val targetRelations = resolveCipherRelations(target, index)
 
+        assertSame(
+            target,
+            index.findTarget(
+                accountId = "account",
+                link = targetLink,
+                excludedCipherId = firstSource.id,
+            ),
+        )
+        assertNull(index.findTarget("other-account", targetLink))
+        assertNull(index.findTarget("account", targetLink, target.id))
         assertSame(target, firstRelations.outgoing.single().cipher)
         assertEquals(
             listOf(firstSource, secondSource),

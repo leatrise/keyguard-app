@@ -54,6 +54,13 @@ class CipherRelationIndex internal constructor(
         val remoteCipherId: String,
     )
 
+    fun findTarget(
+        accountId: String,
+        link: CipherLink,
+        excludedCipherId: String? = null,
+    ): DSecret? = targetsByKey[Key(accountId, link.remoteCipherId)]
+        ?.takeIf { target -> target.id != excludedCipherId }
+
     fun resolve(cipher: DSecret): CipherRelations {
         val outgoing = cipher.fields.mapIndexedNotNull { fieldIndex, field ->
             if (field.type != DSecret.Field.Type.Text) {

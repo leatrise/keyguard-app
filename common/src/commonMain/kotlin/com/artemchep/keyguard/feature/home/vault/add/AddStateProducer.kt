@@ -167,6 +167,7 @@ import com.artemchep.keyguard.feature.home.vault.component.obscurePassword
 import com.artemchep.keyguard.feature.home.vault.link.CipherLink
 import com.artemchep.keyguard.feature.home.vault.link.CipherLinkPickerResult
 import com.artemchep.keyguard.feature.home.vault.link.CipherLinkPickerRoute
+import com.artemchep.keyguard.feature.home.vault.link.GetCipherRelationIndex
 import com.artemchep.keyguard.feature.home.vault.screen.VaultViewRoute
 import com.artemchep.keyguard.feature.home.vault.screen.toVaultItemIcon
 import com.artemchep.keyguard.feature.localization.TextHolder
@@ -241,6 +242,7 @@ fun produceAddScreenState(
         getCollections = instance(),
         getFolders = instance(),
         getCiphers = instance(),
+        getCipherRelationIndex = instance(),
         getAppIcons = instance(),
         getWebsiteIcons = instance(),
         getTotpCode = instance(),
@@ -281,6 +283,7 @@ fun produceAddScreenState(
     getCollections: GetCollections,
     getFolders: GetFolders,
     getCiphers: GetCiphers,
+    getCipherRelationIndex: GetCipherRelationIndex,
     getAppIcons: GetAppIcons,
     getWebsiteIcons: GetWebsiteIcons,
     getTotpCode: GetTotpCode,
@@ -310,6 +313,7 @@ fun produceAddScreenState(
         getCollections,
         getFolders,
         getCiphers,
+        getCipherRelationIndex,
         getAppIcons,
         getWebsiteIcons,
         getTotpCode,
@@ -323,6 +327,7 @@ fun produceAddScreenState(
         getCollections = getCollections,
         getFolders = getFolders,
         getCiphers = getCiphers,
+        getCipherRelationIndex = getCipherRelationIndex,
         getAppIcons = getAppIcons,
         getWebsiteIcons = getWebsiteIcons,
         getTotpCode = getTotpCode,
@@ -353,6 +358,7 @@ suspend fun RememberStateFlowScope.addCipherStateProducer(
     getCollections: GetCollections,
     getFolders: GetFolders,
     getCiphers: GetCiphers,
+    getCipherRelationIndex: GetCipherRelationIndex,
     getAppIcons: GetAppIcons,
     getWebsiteIcons: GetWebsiteIcons,
     getTotpCode: GetTotpCode,
@@ -813,7 +819,7 @@ suspend fun RememberStateFlowScope.addCipherStateProducer(
             defaultConcealed = false,
             accountIdFlow = fieldAccountIdFlow,
             excludedCipherId = args.initialValue?.id,
-            ciphersFlow = getCiphers(),
+            getCipherRelationIndex = getCipherRelationIndex,
             appIconsFlow = getAppIcons(),
             websiteIconsFlow = getWebsiteIcons(),
         )
@@ -821,7 +827,7 @@ suspend fun RememberStateFlowScope.addCipherStateProducer(
             defaultConcealed = true,
             accountIdFlow = fieldAccountIdFlow,
             excludedCipherId = args.initialValue?.id,
-            ciphersFlow = getCiphers(),
+            getCipherRelationIndex = getCipherRelationIndex,
             appIconsFlow = getAppIcons(),
             websiteIconsFlow = getWebsiteIcons(),
         )
@@ -1659,7 +1665,7 @@ class AddStateItemFieldTextFactory(
     private val defaultConcealed: Boolean = false,
     private val accountIdFlow: Flow<String?>,
     private val excludedCipherId: String?,
-    private val ciphersFlow: Flow<List<DSecret>>,
+    private val getCipherRelationIndex: GetCipherRelationIndex,
     private val appIconsFlow: Flow<Boolean>,
     private val websiteIconsFlow: Flow<Boolean>,
 ) : AddStateItemFieldFactory() {
@@ -1809,41 +1815,64 @@ class AddStateItemFieldTextFactory(
                 .associateWith { type -> translate(type.titleH()) }
             translate(Res.string.cipher_link_unavailable_title) to typeTitles
         }.asFlow()
-        val linkFlow = combine(
+        val linkLookupFlow = combine(
             textHandle.sink,
             accountIdFlow,
-            ciphersFlow,
-            iconSettingsFlow,
-            linkTextFlow,
-        ) { textCell, accountId, ciphers, iconSettings, linkText ->
-            val link = CipherLink.parse(textCell.text)
-                ?: return@combine null
-            val target = ciphers.firstOrNull { cipher ->
-                cipher.id != excludedCipherId &&
-                        cipher.accountId == accountId &&
-                        cipher.deletedDate == null &&
-                        cipher.service.remote?.id
-                            ?.let(CipherLink::of)
-                            ?.remoteCipherId == link.remoteCipherId
+            concealSink,
+        ) { textCell, accountId, concealed ->
+            if (concealed) {
+                null
+            } else {
+                CipherLink.parse(textCell.text)
+                    ?.let { link -> accountId to link }
             }
-            val (appIcons, websiteIcons) = iconSettings
-            val (unavailableTitle, typeTitles) = linkText
-            AddStateItem.Field.State.Text.Link(
-                title = target?.name ?: unavailableTitle,
-                text = target?.let { cipher ->
-                    cipher.login?.username
-                        ?.takeIf { it.isNotBlank() }
-                        ?: typeTitles.getValue(cipher.type)
-                },
-                icon = target?.toVaultItemIcon(
-                    appIcons = appIcons,
-                    websiteIcons = websiteIcons,
-                ),
-                onClick = accountId?.let { id ->
-                    { selectLinkedCipher(id) }
-                },
-            )
         }
+            .distinctUntilChanged { old, new ->
+                old?.first == new?.first &&
+                        old?.second?.remoteCipherId == new?.second?.remoteCipherId
+            }
+        val linkFlow: Flow<AddStateItem.Field.State.Text.Link?> = linkLookupFlow
+            .flatMapLatest { lookup ->
+                if (lookup == null) {
+                    return@flatMapLatest flowOf(null)
+                }
+                val (accountId, link) = lookup
+                val targetFlow: Flow<DSecret?> = if (accountId != null) {
+                    getCipherRelationIndex()
+                        .map { relationIndex ->
+                            relationIndex.findTarget(
+                                accountId = accountId,
+                                link = link,
+                                excludedCipherId = excludedCipherId,
+                            )
+                        }
+                } else {
+                    flowOf(null)
+                }
+                combine(
+                    targetFlow,
+                    iconSettingsFlow,
+                    linkTextFlow,
+                ) { target, iconSettings, linkText ->
+                    val (appIcons, websiteIcons) = iconSettings
+                    val (unavailableTitle, typeTitles) = linkText
+                    AddStateItem.Field.State.Text.Link(
+                        title = target?.name ?: unavailableTitle,
+                        text = target?.let { cipher ->
+                            cipher.login?.username
+                                ?.takeIf { it.isNotBlank() }
+                                ?: typeTitles.getValue(cipher.type)
+                        },
+                        icon = target?.toVaultItemIcon(
+                            appIcons = appIcons,
+                            websiteIcons = websiteIcons,
+                        ),
+                        onClick = accountId?.let { id ->
+                            { selectLinkedCipher(id) }
+                        },
+                    )
+                }
+            }
 
         val stateFlow = combine(
             labelFlow,
