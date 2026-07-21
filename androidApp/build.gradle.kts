@@ -27,7 +27,7 @@ fun loadProps(fileName: String): Properties {
 }
 
 val versionInfo = createVersionInfo(
-    marketingVersion = "2.14.2(124f029)-r1.0",
+    marketingVersion = "2.14.2(124f029)-r1.2",
     logicalVersion = libs.versions.appVersionCode.get().toInt(),
 )
 
