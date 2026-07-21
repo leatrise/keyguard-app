@@ -1,6 +1,7 @@
 package com.artemchep.keyguard.feature.home.vault.search.engine
 
 import androidx.compose.ui.graphics.Color
+import com.artemchep.keyguard.common.model.DSecret
 import com.artemchep.keyguard.feature.home.vault.VaultRoute
 import com.artemchep.keyguard.feature.home.vault.model.VaultItem2
 import com.artemchep.keyguard.feature.home.vault.search.createItem
@@ -152,6 +153,11 @@ private class RecordingVaultSearchIndex : VaultSearchIndex {
         lastCandidates = candidates
         return candidates
     }
+
+    override suspend fun evaluateSources(
+        plan: CompiledQueryPlan?,
+        candidates: List<DSecret>,
+    ): List<DSecret> = candidates
 }
 
 private fun fakeScoringQueryPlan(query: String): CompiledQueryPlan = CompiledQueryPlan(

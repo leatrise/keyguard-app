@@ -1,6 +1,7 @@
 package com.artemchep.keyguard.feature.home.vault.search.engine
 
 import androidx.compose.ui.graphics.Color
+import com.artemchep.keyguard.common.model.DSecret
 import com.artemchep.keyguard.feature.home.vault.VaultRoute
 import com.artemchep.keyguard.feature.home.vault.model.VaultItem2
 import com.artemchep.keyguard.feature.home.vault.search.query.VaultSearchQualifierCatalog
@@ -149,6 +150,54 @@ private class DefaultVaultSearchIndex(
                 candidates
             }
         }
+        val ordered = evaluateCandidates(
+            plan = plan,
+            candidates = candidates,
+            sourceOf = VaultItem2.Item::source,
+            itemIdOf = VaultItem2.Item::id,
+            collectPresentation = true,
+        )
+        return ordered.map { evaluation ->
+            decorateItem(
+                item = evaluation.item,
+                titleTerms = evaluation.titleTerms,
+                context = evaluation.context,
+                highlightBackgroundColor = highlightBackgroundColor,
+                highlightContentColor = highlightContentColor,
+            )
+        }
+    }
+
+    override suspend fun evaluateSources(
+        plan: CompiledQueryPlan?,
+        candidates: List<DSecret>,
+    ): List<DSecret> {
+        if (plan == null) {
+            return candidates
+        }
+        if (!plan.hasActiveClauses) {
+            return if (plan.diagnostics.isNotEmpty()) {
+                emptyList()
+            } else {
+                candidates
+            }
+        }
+        return evaluateCandidates(
+            plan = plan,
+            candidates = candidates,
+            sourceOf = { it },
+            itemIdOf = DSecret::id,
+            collectPresentation = false,
+        ).map { evaluation -> evaluation.item }
+    }
+
+    private suspend fun <T> evaluateCandidates(
+        plan: CompiledQueryPlan,
+        candidates: List<T>,
+        sourceOf: (T) -> DSecret,
+        itemIdOf: (T) -> String,
+        collectPresentation: Boolean,
+    ): List<EvaluatedResult<T>> {
         val evaluationStart =
             if (traceSink.isEnabled) {
                 TimeSource.Monotonic.markNow()
@@ -158,7 +207,7 @@ private class DefaultVaultSearchIndex(
         val candidateEntries =
             candidates.mapIndexedNotNull { order, item ->
                 val docId =
-                    docIdsBySourceId[item.source.id]
+                    docIdsBySourceId[sourceOf(item).id]
                         ?: return@mapIndexedNotNull null
                 docId to (order to item)
             }
@@ -246,14 +295,20 @@ private class DefaultVaultSearchIndex(
 
                     val score = positiveMatches.sumOf(ClauseMatch::score)
                     val exactMatchCount = positiveMatches.sumOf(ClauseMatch::exactMatchCount)
-                    val titleTerms =
+                    val titleTerms = if (collectPresentation) {
                         positiveMatches
                             .flatMap { it.titleTerms }
                             .toSet()
-                    val context =
+                    } else {
+                        emptySet()
+                    }
+                    val context = if (collectPresentation) {
                         positiveMatches
                             .mapNotNull { it.context }
                             .maxByOrNull { it.score }
+                    } else {
+                        null
+                    }
                     EvaluatedResult(
                         docId = docId,
                         item = candidate,
@@ -266,7 +321,7 @@ private class DefaultVaultSearchIndex(
                     )
                 }.filterNotNull()
 
-        val coldDocIds = evaluations.map(EvaluatedResult::docId).toSet()
+        val coldDocIds = evaluations.map { it.docId }.toSet()
         val survivedNegativeDocIds =
             evaluations
                 .mapNotNull { evaluation ->
@@ -276,13 +331,13 @@ private class DefaultVaultSearchIndex(
         val ordered =
             if (plan.hasScoringClauses) {
                 evaluations.sortedWith(
-                    compareByDescending<EvaluatedResult> { it.score }
+                    compareByDescending<EvaluatedResult<T>> { it.score }
                         .thenByDescending { it.exactMatchCount }
                         .thenBy { it.order },
                 )
             } else {
-                evaluations.sortedBy(EvaluatedResult::order)
-            }.filterNot(EvaluatedResult::negativeMatched)
+                evaluations.sortedBy { it.order }
+            }.filterNot { it.negativeMatched }
 
         if (traceSink.isEnabled) {
             traceSink.evaluation(
@@ -303,6 +358,7 @@ private class DefaultVaultSearchIndex(
             )
             candidateEntries.forEach { (docId, pair) ->
                 val candidate = pair.second
+                val source = sourceOf(candidate)
                 val document = documents[docId] ?: return@forEach
                 val disposition =
                     when {
@@ -318,11 +374,11 @@ private class DefaultVaultSearchIndex(
                         surface = surface,
                         rawQuery = plan.rawQuery,
                         planId = plan.id,
-                        itemId = candidate.id,
-                        sourceId = candidate.source.id,
-                        type = candidate.source.type.name,
-                        accountId = candidate.source.accountId,
-                        folderId = candidate.source.folderId,
+                        itemId = itemIdOf(candidate),
+                        sourceId = source.id,
+                        type = source.type.name,
+                        accountId = source.accountId,
+                        folderId = source.folderId,
                         disposition = disposition,
                         clauses =
                             buildItemClauseTraces(
@@ -334,15 +390,7 @@ private class DefaultVaultSearchIndex(
             }
         }
 
-        return ordered.map { evaluation ->
-            decorateItem(
-                item = evaluation.item,
-                titleTerms = evaluation.titleTerms,
-                context = evaluation.context,
-                highlightBackgroundColor = highlightBackgroundColor,
-                highlightContentColor = highlightContentColor,
-            )
-        }
+        return ordered
     }
 
     private fun buildItemClauseTraces(

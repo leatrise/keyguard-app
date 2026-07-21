@@ -1,7 +1,6 @@
 package com.artemchep.keyguard.feature.home.vault.search.engine
 
 import com.artemchep.keyguard.common.model.DSecret
-import com.artemchep.keyguard.feature.home.vault.model.VaultItem2
 import com.artemchep.keyguard.feature.home.vault.search.query.compiler.VaultTextField
 
 internal data class IndexedFieldValue(
@@ -91,9 +90,9 @@ internal data class MatchContext(
     val score: Double,
 )
 
-internal data class EvaluatedResult(
+internal data class EvaluatedResult<T>(
     val docId: Int,
-    val item: VaultItem2.Item,
+    val item: T,
     val score: Double,
     val exactMatchCount: Int,
     val order: Int,

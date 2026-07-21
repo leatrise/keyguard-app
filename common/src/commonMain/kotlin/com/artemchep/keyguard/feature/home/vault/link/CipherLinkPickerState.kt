@@ -6,6 +6,7 @@ import com.artemchep.keyguard.feature.home.vault.model.VaultItemIcon
 data class CipherLinkPickerState(
     val query: TextFieldModel = TextFieldModel.empty,
     val items: List<Item> = emptyList(),
+    val onLoadMore: (() -> Unit)? = null,
     val onDeny: (() -> Unit)? = null,
 ) {
     data class Item(

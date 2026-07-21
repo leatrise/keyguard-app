@@ -200,7 +200,6 @@ class CipherLinkTest {
             ciphers = listOf(selectable, excluded, crossAccount, deleted, localOnly),
             accountId = "account",
             excludedCipherId = excluded.id,
-            query = "gmail",
         )
 
         assertEquals(listOf(selectable), result)

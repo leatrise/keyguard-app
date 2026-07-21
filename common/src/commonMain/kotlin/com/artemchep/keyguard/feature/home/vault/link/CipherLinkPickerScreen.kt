@@ -10,14 +10,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.artemchep.keyguard.common.model.ShapeState
@@ -33,7 +36,10 @@ import com.artemchep.keyguard.ui.icons.ChevronIcon
 import com.artemchep.keyguard.ui.icons.icon
 import com.artemchep.keyguard.ui.theme.Dimens
 import com.artemchep.keyguard.ui.theme.combineAlpha
+import kotlinx.coroutines.flow.distinctUntilChanged
 import org.jetbrains.compose.resources.stringResource
+
+private const val CIPHER_LINK_PICKER_LOAD_MORE_THRESHOLD = 10
 
 @Composable
 fun CipherLinkPickerScreen(
@@ -44,6 +50,29 @@ fun CipherLinkPickerScreen(
         args = args,
         transmitter = transmitter,
     )
+    val listState = rememberLazyListState()
+    val updatedOnLoadMore by rememberUpdatedState(state.onLoadMore)
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val layoutInfo = listState.layoutInfo
+            val lastVisibleIndex = layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1
+            lastVisibleIndex to layoutInfo.totalItemsCount
+        }
+            .distinctUntilChanged()
+            .collect { (lastVisibleIndex, totalItemsCount) ->
+                if (
+                    totalItemsCount > 0 &&
+                    lastVisibleIndex >= totalItemsCount - CIPHER_LINK_PICKER_LOAD_MORE_THRESHOLD
+                ) {
+                    updatedOnLoadMore?.invoke()
+                }
+            }
+    }
+    LaunchedEffect(state.query.text) {
+        if (state.items.isNotEmpty()) {
+            listState.scrollToItem(0)
+        }
+    }
     Dialog(
         icon = icon(Icons.Outlined.Link),
         title = {
@@ -76,6 +105,7 @@ fun CipherLinkPickerScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(max = 440.dp),
+                        state = listState,
                     ) {
                         items(
                             items = state.items,

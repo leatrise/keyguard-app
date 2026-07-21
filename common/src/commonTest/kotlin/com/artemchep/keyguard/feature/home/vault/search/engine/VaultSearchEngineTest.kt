@@ -54,6 +54,65 @@ class VaultSearchEngineTest {
     }
 
     @Test
+    fun `source evaluation reuses ranked search without presentation models`() =
+        runTest {
+            val exact = createSecret(
+                id = "exact",
+                name = "Google",
+            )
+            val partial = createSecret(
+                id = "partial",
+                name = "Google Account",
+            )
+            val unrelated = createSecret(
+                id = "unrelated",
+                name = "GitHub",
+            )
+            val candidates = listOf(partial, unrelated, exact)
+            val index = builder.build(candidates)
+            val plan = index.compile("Google", VaultRoute.Args.SearchBy.ALL)
+
+            val result = index.evaluateSources(
+                plan = plan,
+                candidates = candidates,
+            )
+
+            assertEquals(listOf(exact, partial), result)
+        }
+
+    @Test
+    fun `source evaluation preserves homepage title priority over username`() =
+        runTest {
+            val titleMatch = createSecret(
+                id = "title-match",
+                name = "Google",
+                login = DSecret.Login(username = "other@example.com"),
+            )
+            val usernameMatch = createSecret(
+                id = "username-match",
+                name = "Other",
+                login = DSecret.Login(username = "google@example.com"),
+            )
+            val candidates = listOf(usernameMatch, titleMatch)
+            val index = builder.build(candidates)
+            val plan = index.compile("google", VaultRoute.Args.SearchBy.ALL)
+
+            val homepageResult = index.evaluate(
+                plan = plan,
+                candidates = candidates.map(::createItem),
+                highlightBackgroundColor = Color.Unspecified,
+                highlightContentColor = Color.Unspecified,
+            )
+            val sourceResult = index.evaluateSources(
+                plan = plan,
+                candidates = candidates,
+            )
+
+            assertEquals(listOf(titleMatch.id, usernameMatch.id), homepageResult.map { it.id })
+            assertEquals(homepageResult.map { it.id }, sourceResult.map { it.id })
+        }
+
+    @Test
     fun `qualifier query matches off-title and writes context`() =
         runTest {
             val secret =

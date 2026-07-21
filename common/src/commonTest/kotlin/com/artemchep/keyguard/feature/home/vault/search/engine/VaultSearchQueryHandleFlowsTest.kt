@@ -269,6 +269,11 @@ private class TestVaultSearchIndex(
         highlightBackgroundColor: androidx.compose.ui.graphics.Color,
         highlightContentColor: androidx.compose.ui.graphics.Color,
     ): List<com.artemchep.keyguard.feature.home.vault.model.VaultItem2.Item> = candidates
+
+    override suspend fun evaluateSources(
+        plan: CompiledQueryPlan?,
+        candidates: List<com.artemchep.keyguard.common.model.DSecret>,
+    ): List<com.artemchep.keyguard.common.model.DSecret> = candidates
 }
 
 private fun fakeQueryPlan(query: String): CompiledQueryPlan = CompiledQueryPlan(
