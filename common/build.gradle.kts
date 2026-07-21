@@ -505,13 +505,19 @@ buildkonfig {
 
     defaultConfigs {
         buildConfigField(STRING, "buildType", BuildType.DEV.name)
+        // Keep local development builds stable across days so BuildKonfig does
+        // not invalidate the large common compilation without a source change.
+        buildConfigField(STRING, "buildDate", "19700101")
+        buildConfigField(STRING, "buildRef", "")
+        buildConfigField(STRING, "versionName", versionInfo.marketingVersion)
+        buildConfigField(INT, "versionCode", "1")
+    }
+    defaultConfigs("release") {
+        buildConfigField(STRING, "buildType", BuildType.RELEASE.name)
         buildConfigField(STRING, "buildDate", versionInfo.buildDate)
         buildConfigField(STRING, "buildRef", versionInfo.buildRef)
         buildConfigField(STRING, "versionName", versionInfo.marketingVersion)
         buildConfigField(INT, "versionCode", versionInfo.logicalVersion.toString())
-    }
-    defaultConfigs("release") {
-        buildConfigField(STRING, "buildType", BuildType.RELEASE.name)
     }
 }
 

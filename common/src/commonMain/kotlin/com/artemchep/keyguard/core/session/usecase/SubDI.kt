@@ -280,6 +280,8 @@ import com.artemchep.keyguard.feature.home.vault.search.engine.SearchExecutor
 import com.artemchep.keyguard.feature.home.vault.search.engine.SearchScorer
 import com.artemchep.keyguard.feature.home.vault.search.engine.SearchTokenizer
 import com.artemchep.keyguard.feature.home.vault.search.engine.VaultSearchIndexBuilder
+import com.artemchep.keyguard.feature.home.vault.link.GetCipherRelationIndex
+import com.artemchep.keyguard.feature.home.vault.link.GetCipherRelationIndexImpl
 import com.artemchep.keyguard.feature.home.vault.search.engine.VaultSearchTraceSink
 import com.artemchep.keyguard.feature.home.vault.search.query.compiler.DefaultVaultSearchQueryCompiler
 import com.artemchep.keyguard.feature.home.vault.search.query.compiler.VaultSearchQueryCompiler
@@ -619,6 +621,9 @@ fun DI.Builder.createSubDi2(
     }
     bindSingleton<GetCiphers> {
         GetCiphersImpl(this)
+    }
+    bindSingleton<GetCipherRelationIndex> {
+        GetCipherRelationIndexImpl(this)
     }
     bindSingleton<SshAgentPublicKeySyncer> {
         SshAgentPublicKeySyncerImpl(this)

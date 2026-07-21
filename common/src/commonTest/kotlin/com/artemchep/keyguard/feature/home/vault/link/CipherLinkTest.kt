@@ -129,6 +129,36 @@ class CipherLinkTest {
     }
 
     @Test
+    fun `reuses one index to resolve different ciphers`() {
+        val target = cipher(
+            localId = "target-local",
+            remoteId = TARGET_REMOTE_ID,
+        )
+        val firstSource = cipher(
+            localId = "first-source-local",
+            remoteId = CURRENT_REMOTE_ID,
+            fields = listOf(textField("First", TARGET_REMOTE_ID)),
+        )
+        val secondSource = cipher(
+            localId = "second-source-local",
+            remoteId = SOURCE_REMOTE_ID,
+            fields = listOf(textField("Second", TARGET_REMOTE_ID)),
+        )
+        val index = buildCipherRelationIndex(
+            listOf(target, firstSource, secondSource),
+        )
+
+        val firstRelations = resolveCipherRelations(firstSource, index)
+        val targetRelations = resolveCipherRelations(target, index)
+
+        assertSame(target, firstRelations.outgoing.single().cipher)
+        assertEquals(
+            listOf(firstSource, secondSource),
+            targetRelations.incoming.map(CipherRelation::cipher),
+        )
+    }
+
+    @Test
     fun `picker filters by account lifecycle and remote id`() {
         val selectable = cipher(
             localId = "selectable",

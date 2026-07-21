@@ -148,6 +148,14 @@ android {
     }
 }
 
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { output ->
+            output.versionCode.set(1)
+        }
+    }
+}
+
 dependencies {
     implementation(project(":common"))
     baselineProfile(project(":androidBenchmark"))

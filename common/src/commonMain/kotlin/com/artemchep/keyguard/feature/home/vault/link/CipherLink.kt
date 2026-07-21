@@ -44,71 +44,96 @@ data class CipherRelations(
     val incoming: List<CipherRelation>,
 )
 
+class CipherRelationIndex internal constructor(
+    val ciphers: List<DSecret>,
+    private val targetsByKey: Map<Key, DSecret>,
+    private val incomingByKey: Map<Key, List<CipherRelation>>,
+) {
+    internal data class Key(
+        val accountId: String,
+        val remoteCipherId: String,
+    )
+
+    fun resolve(cipher: DSecret): CipherRelations {
+        val outgoing = cipher.fields.mapIndexedNotNull { fieldIndex, field ->
+            if (field.type != DSecret.Field.Type.Text) {
+                return@mapIndexedNotNull null
+            }
+            val link = CipherLink.parse(field.value)
+                ?: return@mapIndexedNotNull null
+            val key = Key(cipher.accountId, link.remoteCipherId)
+            CipherRelation(
+                fieldIndex = fieldIndex,
+                label = field.name.orEmpty(),
+                link = link,
+                cipher = targetsByKey[key]
+                    ?.takeIf { target -> target.id != cipher.id },
+            )
+        }
+
+        val currentRemoteId = cipher.service.remote?.id
+            ?.let(CipherLink::of)
+            ?.remoteCipherId
+        val incoming = currentRemoteId
+            ?.let { remoteCipherId ->
+                incomingByKey[Key(cipher.accountId, remoteCipherId)]
+            }
+            .orEmpty()
+            .filter { relation -> relation.cipher?.id != cipher.id }
+
+        return CipherRelations(
+            outgoing = outgoing,
+            incoming = incoming,
+        )
+    }
+}
+
+fun buildCipherRelationIndex(
+    ciphers: List<DSecret>,
+): CipherRelationIndex {
+    val activeCiphers = ciphers.filter { cipher -> cipher.deletedDate == null }
+    val targetsByKey = buildMap {
+        activeCiphers.forEach { cipher ->
+            val remoteCipherId = cipher.service.remote?.id
+                ?.let(CipherLink::of)
+                ?.remoteCipherId
+                ?: return@forEach
+            put(
+                CipherRelationIndex.Key(cipher.accountId, remoteCipherId),
+                cipher,
+            )
+        }
+    }
+    val incomingByKey = mutableMapOf<CipherRelationIndex.Key, MutableList<CipherRelation>>()
+    activeCiphers.forEach { source ->
+        source.fields.forEachIndexed { fieldIndex, field ->
+            if (field.type != DSecret.Field.Type.Text) {
+                return@forEachIndexed
+            }
+            val link = CipherLink.parse(field.value)
+                ?: return@forEachIndexed
+            val key = CipherRelationIndex.Key(source.accountId, link.remoteCipherId)
+            incomingByKey.getOrPut(key) { mutableListOf() } += CipherRelation(
+                fieldIndex = fieldIndex,
+                label = field.name.orEmpty(),
+                link = link,
+                cipher = source,
+            )
+        }
+    }
+    return CipherRelationIndex(
+        ciphers = activeCiphers,
+        targetsByKey = targetsByKey,
+        incomingByKey = incomingByKey,
+    )
+}
+
 fun resolveCipherRelations(
     cipher: DSecret,
     ciphers: List<DSecret>,
-): CipherRelations {
-    val accountCiphers = ciphers
-        .asSequence()
-        .filter { it.accountId == cipher.accountId && it.deletedDate == null }
-        .toList()
-    val targetsByRemoteId = accountCiphers
-        .asSequence()
-        .filter { it.id != cipher.id }
-        .mapNotNull { target ->
-            target.service.remote?.id
-                ?.let(CipherLink::of)
-                ?.remoteCipherId
-                ?.let { it to target }
-        }
-        .toMap()
+): CipherRelations = buildCipherRelationIndex(ciphers).resolve(cipher)
 
-    val outgoing = cipher.fields.mapIndexedNotNull { fieldIndex, field ->
-        if (field.type != DSecret.Field.Type.Text) {
-            return@mapIndexedNotNull null
-        }
-        val link = CipherLink.parse(field.value)
-            ?: return@mapIndexedNotNull null
-        CipherRelation(
-            fieldIndex = fieldIndex,
-            label = field.name.orEmpty(),
-            link = link,
-            cipher = targetsByRemoteId[link.remoteCipherId],
-        )
-    }
-
-    val currentRemoteId = cipher.service.remote?.id
-        ?.let(CipherLink::of)
-        ?.remoteCipherId
-    val incoming = if (currentRemoteId == null) {
-        emptyList()
-    } else {
-        accountCiphers
-            .asSequence()
-            .filter { it.id != cipher.id }
-            .flatMap { source ->
-                source.fields
-                    .asSequence()
-                    .mapIndexedNotNull { fieldIndex, field ->
-                        if (field.type != DSecret.Field.Type.Text) {
-                            return@mapIndexedNotNull null
-                        }
-                        val link = CipherLink.parse(field.value)
-                            ?.takeIf { it.remoteCipherId == currentRemoteId }
-                            ?: return@mapIndexedNotNull null
-                        CipherRelation(
-                            fieldIndex = fieldIndex,
-                            label = field.name.orEmpty(),
-                            link = link,
-                            cipher = source,
-                        )
-                    }
-            }
-            .toList()
-    }
-
-    return CipherRelations(
-        outgoing = outgoing,
-        incoming = incoming,
-    )
-}
+fun resolveCipherRelations(
+    cipher: DSecret,
+    index: CipherRelationIndex,
+): CipherRelations = index.resolve(cipher)

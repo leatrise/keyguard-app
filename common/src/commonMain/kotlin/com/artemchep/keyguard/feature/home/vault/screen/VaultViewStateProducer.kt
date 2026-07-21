@@ -197,7 +197,9 @@ import com.artemchep.keyguard.feature.home.vault.component.UrlAppStoreListings
 import com.artemchep.keyguard.feature.home.vault.component.VaultItemIcon2
 import com.artemchep.keyguard.feature.home.vault.component.formatCardNumber
 import com.artemchep.keyguard.feature.home.vault.link.CipherRelation
+import com.artemchep.keyguard.feature.home.vault.link.CipherRelationIndex
 import com.artemchep.keyguard.feature.home.vault.link.CipherRelations
+import com.artemchep.keyguard.feature.home.vault.link.GetCipherRelationIndex
 import com.artemchep.keyguard.feature.home.vault.link.resolveCipherRelations
 import com.artemchep.keyguard.feature.home.vault.model.VaultViewItem
 import com.artemchep.keyguard.feature.home.vault.model.Visibility
@@ -316,6 +318,7 @@ fun vaultViewScreenState(
         getAccounts = instance(),
         getCanWrite = instance(),
         getCiphers = instance(),
+        getCipherRelationIndex = instance(),
         getCollections = instance(),
         getOrganizations = instance(),
         getFolders = instance(),
@@ -425,6 +428,7 @@ fun vaultViewScreenState(
     getAccounts: GetAccounts,
     getCanWrite: GetCanWrite,
     getCiphers: GetCiphers,
+    getCipherRelationIndex: GetCipherRelationIndex,
     getCollections: GetCollections,
     getOrganizations: GetOrganizations,
     getFolders: GetFolders,
@@ -502,6 +506,7 @@ fun vaultViewScreenState(
     args = arrayOf(
         getAccounts,
         getCiphers,
+        getCipherRelationIndex,
         getCollections,
         getOrganizations,
         getFolders,
@@ -527,6 +532,7 @@ fun vaultViewScreenState(
         getAccounts = getAccounts,
         getCanWrite = getCanWrite,
         getCiphers = getCiphers,
+        getCipherRelationIndex = getCipherRelationIndex,
         getCollections = getCollections,
         getOrganizations = getOrganizations,
         getFolders = getFolders,
@@ -608,6 +614,7 @@ suspend fun RememberStateFlowScope.vaultViewScreenStateProducer(
     getAccounts: GetAccounts,
     getCanWrite: GetCanWrite,
     getCiphers: GetCiphers,
+    getCipherRelationIndex: GetCipherRelationIndex,
     getCollections: GetCollections,
     getOrganizations: GetOrganizations,
     getFolders: GetFolders,
@@ -729,11 +736,7 @@ suspend fun RememberStateFlowScope.vaultViewScreenStateProducer(
             .launchIn(this)
     }
 
-    val ciphersFlow = getCiphers()
-        .map { secrets ->
-            secrets
-                .filter { it.deletedDate == null }
-        }
+    val cipherRelationIndexFlow = getCipherRelationIndex()
     val folderFlow = secretFlow
         .flatMapLatest { secret ->
             val folderId = secret?.folderId
@@ -1237,7 +1240,7 @@ suspend fun RememberStateFlowScope.vaultViewScreenStateProducer(
         accountFlow,
         cipherExtraFlow,
         folderFlow,
-        ciphersFlow,
+        cipherRelationIndexFlow,
         collectionsFlow,
         organizationFlow,
         getConcealFields(),
@@ -1249,7 +1252,8 @@ suspend fun RememberStateFlowScope.vaultViewScreenStateProducer(
         val secretSauceOrNull = array[1] as CipherSauce?
         val secretOrNull = secretSauceOrNull?.cipher
         val folderOrNull = array[2] as DFolderTree?
-        val ciphers = array[3] as List<DSecret>
+        val cipherRelationIndex = array[3] as CipherRelationIndex
+        val ciphers = cipherRelationIndex.ciphers
         val collections = array[4] as List<DCollection>
         val organizationOrNull = array[5] as DOrganization?
         val concealFields = array[6] as Boolean
@@ -1539,6 +1543,7 @@ suspend fun RememberStateFlowScope.vaultViewScreenStateProducer(
                         tldService = tldService,
                         equivalentDomainsBuilder = equivalentDomainsBuilder,
                         ciphers = ciphers,
+                        cipherRelationIndex = cipherRelationIndex,
                         collections = collections,
                         cipherUris = cipherUris,
                         cipherExpiringCheck = cipherExpiringCheck,
@@ -1610,6 +1615,7 @@ private fun RememberStateFlowScope.oh(
     tldService: TldService,
     equivalentDomainsBuilder: EquivalentDomainsBuilder,
     ciphers: List<DSecret>,
+    cipherRelationIndex: CipherRelationIndex,
     collections: List<DCollection>,
     cipherUris: List<Holder>,
     cipherExpiringCheck: CipherExpiringCheck,
@@ -1623,7 +1629,7 @@ private fun RememberStateFlowScope.oh(
 ) = flow<VaultViewItem> {
     val cipherRelations = resolveCipherRelations(
         cipher = cipher,
-        ciphers = ciphers,
+        index = cipherRelationIndex,
     )
     val linkedFieldIndexes = cipherRelations.outgoing
         .mapTo(mutableSetOf(), CipherRelation::fieldIndex)
