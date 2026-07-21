@@ -1,7 +1,23 @@
 package com.artemchep.keyguard.feature.home.vault.link
 
 import com.artemchep.keyguard.common.model.DSecret
+import com.artemchep.keyguard.common.model.MasterKdfVersion
+import com.artemchep.keyguard.common.model.MasterKey
+import com.artemchep.keyguard.common.model.MasterSession
+import com.artemchep.keyguard.common.usecase.GetCiphers
+import com.artemchep.keyguard.common.usecase.GetVaultSession
+import com.artemchep.keyguard.common.usecase.WindowCoroutineScope
 import com.artemchep.keyguard.core.store.bitwarden.BitwardenService
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.runCurrent
+import kotlinx.coroutines.test.runTest
+import org.kodein.di.DI
 import kotlin.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -170,6 +186,43 @@ class CipherLinkTest {
     }
 
     @Test
+    fun `stops observing ciphers when the owning session ends`() = runTest {
+        val sessionDi = DI {}
+        val sessions = MutableStateFlow<MasterSession>(session(sessionDi))
+        val ciphers = MutableSharedFlow<List<DSecret>>()
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val getCipherRelationIndex = GetCipherRelationIndexImpl(
+            getCiphers = object : GetCiphers {
+                override fun invoke(): Flow<List<DSecret>> = ciphers
+            },
+            windowCoroutineScope = object : WindowCoroutineScope,
+                CoroutineScope by backgroundScope {},
+            getVaultSession = object : GetVaultSession {
+                override val valueOrNull: MasterSession
+                    get() = sessions.value
+
+                override fun invoke(): Flow<MasterSession> = sessions
+            },
+            sessionDi = sessionDi,
+            dispatcher = dispatcher,
+        )
+
+        val collector = backgroundScope.launch(dispatcher) {
+            getCipherRelationIndex().collect()
+        }
+        runCurrent()
+        assertEquals(1, ciphers.subscriptionCount.value)
+
+        collector.cancel()
+        runCurrent()
+        assertEquals(1, ciphers.subscriptionCount.value)
+
+        sessions.value = MasterSession.Empty()
+        runCurrent()
+        assertEquals(0, ciphers.subscriptionCount.value)
+    }
+
+    @Test
     fun `picker filters by account lifecycle and remote id`() {
         val selectable = cipher(
             localId = "selectable",
@@ -248,6 +301,16 @@ class CipherLinkTest {
         login = DSecret.Login(
             username = username,
         ),
+    )
+
+    private fun session(di: DI) = MasterSession.Key(
+        masterKey = MasterKey(
+            version = MasterKdfVersion.LATEST,
+            byteArray = byteArrayOf(1, 2, 3),
+        ),
+        di = di,
+        origin = MasterSession.Key.Authenticated,
+        createdAt = Instant.parse("2024-01-01T00:00:00Z"),
     )
 
     private companion object {
