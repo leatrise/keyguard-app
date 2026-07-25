@@ -1745,11 +1745,33 @@ class AddStateItemFieldTextFactory(
             navigate(NavigationIntent.NavigateToRoute(route))
         }
 
+        val linkLookupFlow = combine(
+            textHandle.sink,
+            accountIdFlow,
+            concealSink,
+        ) { textCell, accountId, concealed ->
+            if (concealed) {
+                null
+            } else {
+                CipherLink.parse(textCell.text)
+                    ?.let { link -> accountId to link }
+            }
+        }
+            .distinctUntilChanged { old, new ->
+                old?.first == new?.first &&
+                        old?.second?.remoteCipherId == new?.second?.remoteCipherId
+            }
+            .shareIn(
+                scope = screenScope,
+                started = SharingStarted.WhileSubscribed(1000L),
+                replay = 1,
+            )
+
         val actionsFlow = combine(
             concealSink,
             accountIdFlow,
-            textHandle.sink,
-        ) { conceal, accountId, textCell ->
+            linkLookupFlow,
+        ) { conceal, accountId, linkLookup ->
             val concealItem = FlatItemAction(
                 id = "addItem.field.concealValue",
                 leading = {
@@ -1790,7 +1812,7 @@ class AddStateItemFieldTextFactory(
                         },
                     )
                 }
-                if (!conceal && CipherLink.parse(textCell.text) != null) {
+                if (!conceal && linkLookup != null) {
                     this += FlatItemAction(
                         id = "addItem.field.removeCipherLink",
                         leading = icon(Icons.Outlined.DeleteForever),
@@ -1815,22 +1837,6 @@ class AddStateItemFieldTextFactory(
                 .associateWith { type -> translate(type.titleH()) }
             translate(Res.string.cipher_link_unavailable_title) to typeTitles
         }.asFlow()
-        val linkLookupFlow = combine(
-            textHandle.sink,
-            accountIdFlow,
-            concealSink,
-        ) { textCell, accountId, concealed ->
-            if (concealed) {
-                null
-            } else {
-                CipherLink.parse(textCell.text)
-                    ?.let { link -> accountId to link }
-            }
-        }
-            .distinctUntilChanged { old, new ->
-                old?.first == new?.first &&
-                        old?.second?.remoteCipherId == new?.second?.remoteCipherId
-            }
         val linkFlow: Flow<AddStateItem.Field.State.Text.Link?> = linkLookupFlow
             .flatMapLatest { lookup ->
                 if (lookup == null) {
